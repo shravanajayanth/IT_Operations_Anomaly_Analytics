@@ -1,0 +1,20 @@
+# Virtual environments
+.venv*/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Benchmark data - regenerate with `python scripts/download_data.py`
+data/
+
+# Per-point scores (~19 MB) - regenerate with `python scripts/run_experiments.py`
+results/scored/
+
+# Streamlit secrets - never commit an API key
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
