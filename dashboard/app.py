@@ -1,3 +1,4 @@
+import io
 import os
 
 import numpy as np
@@ -25,6 +26,7 @@ st.set_page_config(
 DATA_PATH = "data/ec2_cpu_utilization_24ae8d.csv"
 OPENAI_MODEL = "gpt-4o-mini"
 
+# Official NAB anomaly windows for this dataset
 ANOMALY_WINDOWS = [
     ("2014-02-26 13:45:00", "2014-02-27 06:25:00"),
     ("2014-02-27 08:55:00", "2014-02-28 01:35:00"),
@@ -38,7 +40,7 @@ FEATURES = ["value", "rolling_mean", "rolling_std", "percentage_change", "lag_1"
 # ============================================================
 def get_openai_client():
     if not OPENAI_AVAILABLE:
-        return None, "The openai package is not installed in this interpreter."
+        return None, "The openai package is not installed in this environment."
     api_key = None
     try:
         api_key = st.secrets.get("OPENAI_API_KEY")
@@ -126,8 +128,13 @@ The Isolation Forest model identified **{count} potential anomalous observation(
 # DATA AND MODEL
 # ============================================================
 @st.cache_data
-def load_data(path):
-    df = pd.read_csv(path)
+def load_data(source):
+    """source is either a file path (str) or raw CSV bytes."""
+    if isinstance(source, (bytes, bytearray)):
+        df = pd.read_csv(io.BytesIO(source))
+    else:
+        df = pd.read_csv(source)
+
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp").reset_index(drop=True)
 
@@ -170,16 +177,19 @@ def evaluate(y_true, y_pred):
 
 
 # ============================================================
-# LOAD
+# LOAD (local file if present, otherwise upload)
 # ============================================================
-if not os.path.exists(DATA_PATH):
-    st.error(
-        f"Data file not found: {DATA_PATH}. "
-        "Launch with `streamlit run app.py` from the project root folder."
+if os.path.exists(DATA_PATH):
+    raw_df = load_data(DATA_PATH)
+else:
+    st.info(
+        "The data file is not in the repository. Upload the NAB file "
+        "ec2_cpu_utilization_24ae8d.csv (columns: timestamp, value) to continue."
     )
-    st.stop()
-
-raw_df = load_data(DATA_PATH)
+    uploaded = st.file_uploader("Upload CSV", type="csv")
+    if uploaded is None:
+        st.stop()
+    raw_df = load_data(uploaded.getvalue())
 
 # ============================================================
 # SIDEBAR
@@ -198,10 +208,15 @@ show_truth = st.sidebar.checkbox("Show ground-truth windows", value=True)
 
 results = run_models(raw_df, contamination, z_threshold)
 
-if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
-    start_d, end_d = date_range
+if isinstance(date_range, (tuple, list)):
+    if len(date_range) == 2:
+        start_d, end_d = date_range
+    elif len(date_range) == 1:
+        start_d = end_d = date_range[0]
+    else:
+        start_d, end_d = min_date, max_date
 else:
-    start_d = end_d = date_range[0] if isinstance(date_range, (tuple, list)) else date_range
+    start_d = end_d = date_range
 
 view = results[
     (results["timestamp"].dt.date >= start_d) & (results["timestamp"].dt.date <= end_d)
@@ -291,8 +306,10 @@ with tab_eval:
         "Recall": [z_eval["Recall"], f_eval["Recall"]],
         "F1-score": [z_eval["F1-score"], f_eval["F1-score"]],
     })
-    st.dataframe(comparison.style.format({"Precision": "{:.4f}", "Recall": "{:.4f}", "F1-score": "{:.4f}"}),
-                 use_container_width=True)
+    st.dataframe(
+        comparison.style.format({"Precision": "{:.4f}", "Recall": "{:.4f}", "F1-score": "{:.4f}"}),
+        use_container_width=True,
+    )
 
     cm1, cm2 = st.columns(2)
     labels = ["Normal", "Anomaly"]
@@ -324,11 +341,15 @@ with tab_detail:
 
         dfig = go.Figure()
         dfig.add_trace(go.Scatter(x=window["timestamp"], y=window["value"], mode="lines", name="CPU"))
-        dfig.add_trace(go.Scatter(x=window["timestamp"], y=window["rolling_mean"],
-                                  mode="lines", name="Rolling mean", line=dict(dash="dot")))
+        dfig.add_trace(go.Scatter(
+            x=window["timestamp"], y=window["rolling_mean"],
+            mode="lines", name="Rolling mean", line=dict(dash="dot"),
+        ))
         pt = results.loc[[idx]]
-        dfig.add_trace(go.Scatter(x=pt["timestamp"], y=pt["value"], mode="markers",
-                                  name="Selected anomaly", marker=dict(size=12, color="red")))
+        dfig.add_trace(go.Scatter(
+            x=pt["timestamp"], y=pt["value"], mode="markers",
+            name="Selected anomaly", marker=dict(size=12, color="red"),
+        ))
         dfig.update_layout(height=420, xaxis_title="Timestamp", yaxis_title="CPU Utilization")
         st.plotly_chart(dfig, use_container_width=True)
 
