@@ -1,7 +1,6 @@
 streamlit
 pandas
 numpy
-plotly
 scikit-learn
-openai>=1.0
+plotly
 matplotlib
