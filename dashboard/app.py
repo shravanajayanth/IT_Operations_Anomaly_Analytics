@@ -9,7 +9,6 @@
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 
 from sklearn.ensemble import IsolationForest
@@ -112,6 +111,26 @@ with st.sidebar:
 
     st.write(
         "Isolation Forest"
+    )
+
+    st.markdown("---")
+
+    st.markdown("### Anomaly Classification")
+
+    st.write(
+        """
+        • CPU Spike
+
+        • Sudden Drop
+
+        • High Resource Usage
+
+        • High Volatility
+
+        • Performance Degradation
+
+        • Unusual Pattern
+        """
     )
 
     st.markdown("---")
@@ -474,6 +493,156 @@ df_model["anomaly_score"] = (
 
 
 # ============================================================
+# ANOMALY TYPE CLASSIFICATION
+# ============================================================
+
+def classify_anomaly(row):
+
+    value = row["value"]
+
+    rolling_mean = row["rolling_mean"]
+
+    rolling_std = row["rolling_std"]
+
+    percentage_change = row["percentage_change"]
+
+    # --------------------------------------------------------
+    # CPU SPIKE
+    # --------------------------------------------------------
+
+    if percentage_change >= 1.0:
+
+        return "CPU Spike"
+
+
+    # --------------------------------------------------------
+    # SUDDEN DROP
+    # --------------------------------------------------------
+
+    elif percentage_change <= -0.50:
+
+        return "Sudden Drop"
+
+
+    # --------------------------------------------------------
+    # HIGH RESOURCE USAGE
+    # --------------------------------------------------------
+
+    elif (
+        rolling_std > 0
+        and value > rolling_mean + (3 * rolling_std)
+    ):
+
+        return "High Resource Usage"
+
+
+    # --------------------------------------------------------
+    # HIGH VOLATILITY
+    # --------------------------------------------------------
+
+    elif (
+        rolling_mean != 0
+        and rolling_std > abs(rolling_mean) * 0.50
+    ):
+
+        return "High Volatility"
+
+
+    # --------------------------------------------------------
+    # PERFORMANCE DEGRADATION
+    # --------------------------------------------------------
+
+    elif (
+        rolling_mean != 0
+        and value > rolling_mean * 1.50
+    ):
+
+        return "Performance Degradation"
+
+
+    # --------------------------------------------------------
+    # OTHER UNUSUAL PATTERN
+    # --------------------------------------------------------
+
+    else:
+
+        return "Unusual Pattern"
+
+
+# Default classification for normal records
+
+df_model["anomaly_type"] = "Normal"
+
+
+# Classify only detected anomalies
+
+anomaly_mask = df_model["anomaly"]
+
+
+df_model.loc[
+    anomaly_mask,
+    "anomaly_type"
+] = df_model.loc[
+    anomaly_mask
+].apply(
+    classify_anomaly,
+    axis=1
+)
+
+
+# ============================================================
+# ANOMALY SEVERITY
+# ============================================================
+
+def classify_severity(row):
+
+    if not row["anomaly"]:
+
+        return "Normal"
+
+    percentage_change = abs(
+        row["percentage_change"]
+    )
+
+    anomaly_score = row["anomaly_score"]
+
+
+    # High severity
+
+    if (
+        percentage_change >= 2.0
+        or anomaly_score >= 0.70
+    ):
+
+        return "High"
+
+
+    # Medium severity
+
+    elif (
+        percentage_change >= 1.0
+        or anomaly_score >= 0.55
+    ):
+
+        return "Medium"
+
+
+    # Low severity
+
+    else:
+
+        return "Low"
+
+
+df_model["severity"] = (
+    df_model.apply(
+        classify_severity,
+        axis=1
+    )
+)
+
+
+# ============================================================
 # ANOMALY COUNT
 # ============================================================
 
@@ -523,7 +692,10 @@ date_range = st.date_input(
 )
 
 
-if isinstance(date_range, tuple) or isinstance(date_range, list):
+if isinstance(
+    date_range,
+    (tuple, list)
+):
 
     if len(date_range) == 2:
 
@@ -532,7 +704,9 @@ if isinstance(date_range, tuple) or isinstance(date_range, list):
         )
 
         end_date = (
-            pd.to_datetime(date_range[1])
+            pd.to_datetime(
+                date_range[1]
+            )
             + pd.Timedelta(days=1)
             - pd.Timedelta(seconds=1)
         )
@@ -627,6 +801,49 @@ with kpi4:
 
 
 # ============================================================
+# ANOMALY TYPE SUMMARY
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">🚨 Anomaly Type Summary</div>',
+    unsafe_allow_html=True
+)
+
+
+filtered_anomaly_df = filtered_df[
+    filtered_df["anomaly"]
+].copy()
+
+
+if filtered_anomaly_df.empty:
+
+    st.success(
+        "No anomalies were detected in the selected date range."
+    )
+
+else:
+
+    anomaly_type_counts = (
+        filtered_anomaly_df[
+            "anomaly_type"
+        ]
+        .value_counts()
+        .reset_index()
+    )
+
+    anomaly_type_counts.columns = [
+        "Anomaly Type",
+        "Count"
+    ]
+
+    st.dataframe(
+        anomaly_type_counts,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+# ============================================================
 # PERFORMANCE GRAPH
 # ============================================================
 
@@ -639,7 +856,7 @@ st.markdown(
 fig = go.Figure()
 
 
-# Normal/performance line
+# Performance line
 
 fig.add_trace(
     go.Scatter(
@@ -669,6 +886,17 @@ if not anomaly_points.empty:
             y=anomaly_points["value"],
             mode="markers",
             name="Detected Anomalies",
+            text=anomaly_points["anomaly_type"],
+            customdata=anomaly_points[
+                ["severity"]
+            ],
+            hovertemplate=(
+                "<b>Time:</b> %{x}<br>"
+                "<b>Value:</b> %{y}<br>"
+                "<b>Anomaly Type:</b> %{text}<br>"
+                "<b>Severity:</b> %{customdata[0]}"
+                "<extra></extra>"
+            ),
             marker=dict(
                 size=10,
                 symbol="circle"
@@ -705,7 +933,7 @@ st.plotly_chart(
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">🚨 Anomaly Summary</div>',
+    '<div class="section-title">🔎 Anomaly Analysis</div>',
     unsafe_allow_html=True
 )
 
@@ -725,7 +953,7 @@ else:
 
 
 # ============================================================
-# ANOMALY RECORDS
+# DETECTED ANOMALY RECORDS
 # ============================================================
 
 st.markdown(
@@ -744,13 +972,19 @@ if not anomaly_points.empty:
             "rolling_std",
             "percentage_change",
             "lag_1",
-            "anomaly_score"
+            "anomaly_score",
+            "anomaly_type",
+            "severity"
         ]
     ].copy()
 
 
-    anomaly_display["percentage_change"] = (
-        anomaly_display["percentage_change"] * 100
+    anomaly_display[
+        "percentage_change"
+    ] = (
+        anomaly_display[
+            "percentage_change"
+        ] * 100
     )
 
 
@@ -764,7 +998,9 @@ if not anomaly_points.empty:
                 "rolling_std": "Rolling Std",
                 "percentage_change": "Percentage Change (%)",
                 "lag_1": "Previous Value",
-                "anomaly_score": "Anomaly Score"
+                "anomaly_score": "Anomaly Score",
+                "anomaly_type": "Anomaly Type",
+                "severity": "Severity"
             }
         )
     )
@@ -834,6 +1070,60 @@ st.dataframe(
 
 
 # ============================================================
+# ANOMALY TYPE EXPLANATION
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">📖 Anomaly Type Explanation</div>',
+    unsafe_allow_html=True
+)
+
+
+anomaly_explanation = pd.DataFrame({
+
+    "Anomaly Type": [
+
+        "CPU Spike",
+
+        "Sudden Drop",
+
+        "High Resource Usage",
+
+        "High Volatility",
+
+        "Performance Degradation",
+
+        "Unusual Pattern"
+
+    ],
+
+    "Meaning": [
+
+        "A sudden increase in the operational value compared with the previous observation.",
+
+        "A sudden decrease in the operational value compared with the previous observation.",
+
+        "The current value is significantly higher than the recent rolling behavior.",
+
+        "The operational value shows unusually large variation compared with its recent average.",
+
+        "The current value is substantially higher than the recent rolling average.",
+
+        "An unusual pattern detected by Isolation Forest that does not match the specific rules above."
+
+    ]
+
+})
+
+
+st.dataframe(
+    anomaly_explanation,
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# ============================================================
 # PROCESSED DATA
 # ============================================================
 
@@ -867,16 +1157,19 @@ st.markdown(
 download_df = df_model.copy()
 
 
-download_df["anomaly"] = (
-    download_df["anomaly"]
-    .astype(bool)
+download_df[
+    "anomaly"
+] = (
+    download_df[
+        "anomaly"
+    ].astype(bool)
 )
 
 
-csv_data = download_df.to_csv(
-    index=False
-).encode(
-    "utf-8"
+csv_data = (
+    download_df
+    .to_csv(index=False)
+    .encode("utf-8")
 )
 
 
@@ -911,7 +1204,10 @@ st.markdown(
     <b>Random State:</b> 42<br><br>
 
     <b>Features Used:</b> Value, Rolling Mean, Rolling Standard Deviation,
-    Percentage Change and Lag-1 Value
+    Percentage Change and Lag-1 Value<br><br>
+
+    <b>Anomaly Classification:</b> Rule-based pattern classification
+    using the engineered features.
 
     </div>
     """,
@@ -920,7 +1216,7 @@ st.markdown(
 
 
 # ============================================================
-# PROJECT INTERPRETATION
+# IMPORTANT INTERPRETATION
 # ============================================================
 
 st.markdown(
@@ -937,13 +1233,18 @@ st.info(
     Feature engineering is applied using rolling statistics,
     percentage change and lag values.
 
-    Detected anomalies represent observations that differ
-    significantly from the normal pattern in the dataset.
+    After an anomaly is detected, the dashboard classifies its
+    observed pattern into categories such as CPU Spike, Sudden Drop,
+    High Resource Usage, High Volatility, Performance Degradation,
+    or Unusual Pattern.
 
-    An anomaly does not automatically indicate the exact root cause.
+    These categories describe the observed anomaly pattern.
+    They do not prove the exact root cause of an IT incident.
+
     In a real IT operations environment, detected events would
     require further investigation using system logs, network data,
-    application metrics and other operational information.
+    application metrics, memory usage, disk usage and other
+    operational information.
     """
 )
 
@@ -960,16 +1261,17 @@ st.markdown(
 
 st.success(
     """
-    The developed dashboard demonstrates how machine learning
-    and data visualization can be used to identify unusual
-    patterns in IT operational data.
+    The developed dashboard demonstrates how machine learning,
+    feature engineering and data visualization can be used to
+    identify and classify unusual patterns in IT operational data.
 
-    Isolation Forest analyzes multiple engineered features
-    and highlights potentially anomalous observations.
+    Isolation Forest identifies potentially anomalous observations,
+    while the classification layer provides an interpretable
+    description of the observed anomaly pattern.
 
     The interactive dashboard allows users to upload data,
-    analyze performance, visualize anomalies and download
-    the processed results.
+    analyze performance, visualize anomalies, understand their
+    observed patterns and download the processed results.
 
     This approach can be extended in future work to include
     multiple IT metrics such as CPU utilization, memory usage,
