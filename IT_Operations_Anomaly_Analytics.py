@@ -1,3 +1,6 @@
+import os
+
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -6,8 +9,11 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
-    confusion_matrix
+    confusion_matrix,
 )
+
+# Make sure the output folder exists (results/ is not stored in GitHub)
+os.makedirs("results", exist_ok=True)
 
 
 # ============================================================
@@ -15,6 +21,12 @@ from sklearn.metrics import (
 # ============================================================
 
 file_path = "data/ec2_cpu_utilization_24ae8d.csv"
+
+if not os.path.exists(file_path):
+    raise FileNotFoundError(
+        "Download ec2_cpu_utilization_24ae8d.csv from the NAB repository "
+        "(realAWSCloudwatch folder) and place it in the data/ folder."
+    )
 
 df = pd.read_csv(file_path)
 
@@ -28,7 +40,6 @@ print("========================================")
 # ============================================================
 
 df["timestamp"] = pd.to_datetime(df["timestamp"])
-
 df = df.sort_values("timestamp").reset_index(drop=True)
 
 print("\nDATA TYPES:")
@@ -68,56 +79,34 @@ print(df["value"].describe())
 # ============================================================
 
 plt.figure(figsize=(12, 5))
-
-plt.plot(
-    df["timestamp"],
-    df["value"],
-    linewidth=1
-)
-
+plt.plot(df["timestamp"], df["value"], linewidth=1)
 plt.title("CPU Utilization Over Time")
 plt.xlabel("Timestamp")
 plt.ylabel("CPU Utilization")
 plt.grid(True)
-
 plt.tight_layout()
-plt.show()
+plt.savefig("results/cpu_utilization_overview.png", dpi=300)
+plt.close()  # no plt.show() here, so the script does not pause
 
 
 # ============================================================
 # 6. Z-SCORE BASELINE ANOMALY DETECTION
 # ============================================================
 
-df["z_score"] = (
-    (df["value"] - df["value"].mean())
-    / df["value"].std()
-)
-
-df["baseline_anomaly"] = (
-    df["z_score"].abs() > 3
-)
+df["z_score"] = (df["value"] - df["value"].mean()) / df["value"].std()
+df["baseline_anomaly"] = df["z_score"].abs() > 3
 
 zscore_count = df["baseline_anomaly"].sum()
 
 print("\n========================================")
 print("BASELINE ANOMALY DETECTION")
 print("========================================")
-
-print(
-    "Number of anomalies detected:",
-    zscore_count
-)
+print("Number of anomalies detected:", zscore_count)
 
 print("\nANOMALY RECORDS:")
-
 print(
     df[df["baseline_anomaly"]][
-        [
-            "timestamp",
-            "value",
-            "z_score",
-            "baseline_anomaly"
-        ]
+        ["timestamp", "value", "z_score", "baseline_anomaly"]
     ].head(10)
 )
 
@@ -128,38 +117,22 @@ print(
 
 X = df[["value"]]
 
-model = IsolationForest(
-    contamination=0.01,
-    random_state=42
-)
+model = IsolationForest(contamination=0.01, random_state=42)
 
 df["isolation_prediction"] = model.fit_predict(X)
-
-df["isolation_anomaly"] = (
-    df["isolation_prediction"] == -1
-)
+df["isolation_anomaly"] = df["isolation_prediction"] == -1
 
 isolation_count = df["isolation_anomaly"].sum()
 
 print("\n========================================")
 print("ISOLATION FOREST DETECTION")
 print("========================================")
-
-print(
-    "Number of anomalies detected:",
-    isolation_count
-)
+print("Number of anomalies detected:", isolation_count)
 
 print("\nISOLATION FOREST ANOMALIES:")
-
 print(
     df[df["isolation_anomaly"]][
-        [
-            "timestamp",
-            "value",
-            "isolation_prediction",
-            "isolation_anomaly"
-        ]
+        ["timestamp", "value", "isolation_prediction", "isolation_anomaly"]
     ].head(10)
 )
 
@@ -168,20 +141,9 @@ print(
 # 8. COMPARE Z-SCORE AND ISOLATION FOREST
 # ============================================================
 
-both_methods = (
-    df["baseline_anomaly"]
-    & df["isolation_anomaly"]
-)
-
-only_zscore = (
-    df["baseline_anomaly"]
-    & ~df["isolation_anomaly"]
-)
-
-only_isolation = (
-    ~df["baseline_anomaly"]
-    & df["isolation_anomaly"]
-)
+both_methods = df["baseline_anomaly"] & df["isolation_anomaly"]
+only_zscore = df["baseline_anomaly"] & ~df["isolation_anomaly"]
+only_isolation = ~df["baseline_anomaly"] & df["isolation_anomaly"]
 
 both_count = both_methods.sum()
 zscore_only_count = only_zscore.sum()
@@ -190,28 +152,11 @@ isolation_only_count = only_isolation.sum()
 print("\n========================================")
 print("ANOMALY DETECTION COMPARISON")
 print("========================================")
-
 print("Z-score anomalies:", zscore_count)
-
-print(
-    "Isolation Forest anomalies:",
-    isolation_count
-)
-
-print(
-    "Detected by both methods:",
-    both_count
-)
-
-print(
-    "Detected only by Z-score:",
-    zscore_only_count
-)
-
-print(
-    "Detected only by Isolation Forest:",
-    isolation_only_count
-)
+print("Isolation Forest anomalies:", isolation_count)
+print("Detected by both methods:", both_count)
+print("Detected only by Z-score:", zscore_only_count)
+print("Detected only by Isolation Forest:", isolation_only_count)
 
 
 # ============================================================
@@ -219,48 +164,30 @@ print(
 # ============================================================
 
 # Official NAB anomaly windows for this dataset
-
 anomaly_windows = [
-    (
-        "2014-02-26 13:45:00",
-        "2014-02-27 06:25:00"
-    ),
-    (
-        "2014-02-27 08:55:00",
-        "2014-02-28 01:35:00"
-    )
+    ("2014-02-26 13:45:00", "2014-02-27 06:25:00"),
+    ("2014-02-27 08:55:00", "2014-02-28 01:35:00"),
 ]
 
 df["ground_truth"] = False
 
 for start, end in anomaly_windows:
-
     start = pd.to_datetime(start)
     end = pd.to_datetime(end)
-
     df.loc[
-        (df["timestamp"] >= start)
-        & (df["timestamp"] <= end),
-        "ground_truth"
+        (df["timestamp"] >= start) & (df["timestamp"] <= end),
+        "ground_truth",
     ] = True
-
 
 ground_truth_count = df["ground_truth"].sum()
 
 print("\n========================================")
 print("GROUND TRUTH")
 print("========================================")
-
-print(
-    "Ground-truth anomaly observations:",
-    ground_truth_count
-)
+print("Ground-truth anomaly observations:", ground_truth_count)
 
 print("\nGROUND-TRUTH RECORDS:")
-
-print(
-    df[df["ground_truth"]].head(10)
-)
+print(df[df["ground_truth"]].head(10))
 
 
 # ============================================================
@@ -268,31 +195,12 @@ print(
 # ============================================================
 
 y_true = df["ground_truth"]
-
 y_zscore = df["baseline_anomaly"]
 
-z_precision = precision_score(
-    y_true,
-    y_zscore,
-    zero_division=0
-)
-
-z_recall = recall_score(
-    y_true,
-    y_zscore,
-    zero_division=0
-)
-
-z_f1 = f1_score(
-    y_true,
-    y_zscore,
-    zero_division=0
-)
-
-z_cm = confusion_matrix(
-    y_true,
-    y_zscore
-)
+z_precision = precision_score(y_true, y_zscore, zero_division=0)
+z_recall = recall_score(y_true, y_zscore, zero_division=0)
+z_f1 = f1_score(y_true, y_zscore, zero_division=0)
+z_cm = confusion_matrix(y_true, y_zscore)
 
 
 # ============================================================
@@ -301,28 +209,10 @@ z_cm = confusion_matrix(
 
 y_isolation = df["isolation_anomaly"]
 
-i_precision = precision_score(
-    y_true,
-    y_isolation,
-    zero_division=0
-)
-
-i_recall = recall_score(
-    y_true,
-    y_isolation,
-    zero_division=0
-)
-
-i_f1 = f1_score(
-    y_true,
-    y_isolation,
-    zero_division=0
-)
-
-i_cm = confusion_matrix(
-    y_true,
-    y_isolation
-)
+i_precision = precision_score(y_true, y_isolation, zero_division=0)
+i_recall = recall_score(y_true, y_isolation, zero_division=0)
+i_f1 = f1_score(y_true, y_isolation, zero_division=0)
+i_cm = confusion_matrix(y_true, y_isolation)
 
 
 # ============================================================
@@ -334,43 +224,16 @@ print("MODEL EVALUATION")
 print("========================================")
 
 print("\nZ-SCORE BASELINE")
-
-print(
-    "Precision:",
-    round(z_precision, 4)
-)
-
-print(
-    "Recall:",
-    round(z_recall, 4)
-)
-
-print(
-    "F1-score:",
-    round(z_f1, 4)
-)
-
+print("Precision:", round(z_precision, 4))
+print("Recall:", round(z_recall, 4))
+print("F1-score:", round(z_f1, 4))
 print("Confusion Matrix:")
 print(z_cm)
 
-
 print("\nISOLATION FOREST")
-
-print(
-    "Precision:",
-    round(i_precision, 4)
-)
-
-print(
-    "Recall:",
-    round(i_recall, 4)
-)
-
-print(
-    "F1-score:",
-    round(i_f1, 4)
-)
-
+print("Precision:", round(i_precision, 4))
+print("Recall:", round(i_recall, 4))
+print("F1-score:", round(i_f1, 4))
 print("Confusion Matrix:")
 print(i_cm)
 
@@ -379,49 +242,24 @@ print(i_cm)
 # 13. FEATURE ENGINEERING
 # ============================================================
 
-df["rolling_mean"] = (
-    df["value"]
-    .rolling(window=12)
-    .mean()
-)
+df["rolling_mean"] = df["value"].rolling(window=12).mean()
+df["rolling_std"] = df["value"].rolling(window=12).std()
+df["percentage_change"] = df["value"].pct_change()
+df["lag_1"] = df["value"].shift(1)
 
-df["rolling_std"] = (
-    df["value"]
-    .rolling(window=12)
-    .std()
-)
-
-df["percentage_change"] = (
-    df["value"]
-    .pct_change()
-)
-
-df["lag_1"] = (
-    df["value"]
-    .shift(1)
-)
-
-
-# Remove rows where feature calculations are unavailable
-
-df_features = df.dropna().copy()
+# Remove rows where feature calculations are unavailable.
+# inf values (from pct_change dividing by 0) are converted to NaN first.
+df_features = df.replace([np.inf, -np.inf], np.nan).dropna().copy()
 
 print("\n========================================")
 print("FEATURE ENGINEERING")
 print("========================================")
 
 print("\nFEATURE COLUMNS:")
-
 print(
     df_features[
-        [
-            "timestamp",
-            "value",
-            "rolling_mean",
-            "rolling_std",
-            "percentage_change",
-            "lag_1"
-        ]
+        ["timestamp", "value", "rolling_mean", "rolling_std",
+         "percentage_change", "lag_1"]
     ].head(15)
 )
 
@@ -430,56 +268,27 @@ print(
 # 14. ISOLATION FOREST WITH ENGINEERED FEATURES
 # ============================================================
 
-features = [
-    "value",
-    "rolling_mean",
-    "rolling_std",
-    "percentage_change",
-    "lag_1"
-]
+features = ["value", "rolling_mean", "rolling_std", "percentage_change", "lag_1"]
 
 X_features = df_features[features]
 
-feature_model = IsolationForest(
-    contamination=0.01,
-    random_state=42
-)
+feature_model = IsolationForest(contamination=0.01, random_state=42)
 
-df_features["feature_prediction"] = (
-    feature_model.fit_predict(X_features)
-)
+df_features["feature_prediction"] = feature_model.fit_predict(X_features)
+df_features["feature_anomaly"] = df_features["feature_prediction"] == -1
 
-df_features["feature_anomaly"] = (
-    df_features["feature_prediction"] == -1
-)
-
-feature_anomaly_count = (
-    df_features["feature_anomaly"].sum()
-)
+feature_anomaly_count = df_features["feature_anomaly"].sum()
 
 print("\n========================================")
 print("ISOLATION FOREST WITH FEATURES")
 print("========================================")
-
-print(
-    "Number of anomalies detected:",
-    feature_anomaly_count
-)
+print("Number of anomalies detected:", feature_anomaly_count)
 
 print("\nDETECTED ANOMALIES:")
-
 print(
-    df_features[
-        df_features["feature_anomaly"]
-    ][
-        [
-            "timestamp",
-            "value",
-            "rolling_mean",
-            "rolling_std",
-            "percentage_change",
-            "lag_1"
-        ]
+    df_features[df_features["feature_anomaly"]][
+        ["timestamp", "value", "rolling_mean", "rolling_std",
+         "percentage_change", "lag_1"]
     ].head(10)
 )
 
@@ -488,64 +297,22 @@ print(
 # 15. FEATURE-BASED MODEL EVALUATION
 # ============================================================
 
-# IMPORTANT:
-# ground_truth is already present inside df_features.
-# No merge is required.
+# ground_truth is already present inside df_features. No merge is required.
 
-evaluation_df = df_features.copy()
+y_true_features = df_features["ground_truth"]
+y_feature_model = df_features["feature_anomaly"]
 
-y_true_features = (
-    evaluation_df["ground_truth"]
-)
-
-y_feature_model = (
-    evaluation_df["feature_anomaly"]
-)
-
-
-feature_precision = precision_score(
-    y_true_features,
-    y_feature_model,
-    zero_division=0
-)
-
-feature_recall = recall_score(
-    y_true_features,
-    y_feature_model,
-    zero_division=0
-)
-
-feature_f1 = f1_score(
-    y_true_features,
-    y_feature_model,
-    zero_division=0
-)
-
-feature_cm = confusion_matrix(
-    y_true_features,
-    y_feature_model
-)
-
+feature_precision = precision_score(y_true_features, y_feature_model, zero_division=0)
+feature_recall = recall_score(y_true_features, y_feature_model, zero_division=0)
+feature_f1 = f1_score(y_true_features, y_feature_model, zero_division=0)
+feature_cm = confusion_matrix(y_true_features, y_feature_model)
 
 print("\n========================================")
 print("FEATURE-BASED MODEL EVALUATION")
 print("========================================")
-
-print(
-    "Precision:",
-    round(feature_precision, 4)
-)
-
-print(
-    "Recall:",
-    round(feature_recall, 4)
-)
-
-print(
-    "F1-score:",
-    round(feature_f1, 4)
-)
-
+print("Precision:", round(feature_precision, 4))
+print("Recall:", round(feature_recall, 4))
+print("F1-score:", round(feature_f1, 4))
 print("Confusion Matrix:")
 print(feature_cm)
 
@@ -555,56 +322,32 @@ print(feature_cm)
 # ============================================================
 
 comparison = pd.DataFrame({
-
     "Method": [
         "Z-score Baseline",
         "Isolation Forest",
-        "Feature-based Isolation Forest"
+        "Feature-based Isolation Forest",
     ],
-
     "Anomalies Detected": [
         zscore_count,
         isolation_count,
-        feature_anomaly_count
+        feature_anomaly_count,
     ],
-
-    "Precision": [
-        z_precision,
-        i_precision,
-        feature_precision
-    ],
-
-    "Recall": [
-        z_recall,
-        i_recall,
-        feature_recall
-    ],
-
-    "F1-score": [
-        z_f1,
-        i_f1,
-        feature_f1
-    ]
+    "Precision": [z_precision, i_precision, feature_precision],
+    "Recall": [z_recall, i_recall, feature_recall],
+    "F1-score": [z_f1, i_f1, feature_f1],
 })
-
 
 print("\n========================================")
 print("FINAL MODEL COMPARISON")
 print("========================================")
-
-print(
-    comparison.to_string(index=False)
-)
+print(comparison.to_string(index=False))
 
 
 # ============================================================
 # 17. SAVE RESULTS
 # ============================================================
 
-comparison.to_csv(
-    "results/model_comparison.csv",
-    index=False
-)
+comparison.to_csv("results/model_comparison.csv", index=False)
 
 df_features[
     [
@@ -616,70 +359,47 @@ df_features[
         "lag_1",
         "feature_prediction",
         "feature_anomaly",
-        "ground_truth"
+        "ground_truth",
     ]
-].to_csv(
-    "results/feature_anomalies.csv",
-    index=False
-)
-
+].to_csv("results/feature_anomalies.csv", index=False)
 
 print("\n========================================")
 print("PROJECT RESULTS SAVED")
 print("========================================")
+print("Saved: results/model_comparison.csv")
+print("Saved: results/feature_anomalies.csv")
 
-print(
-    "Saved: results/model_comparison.csv"
-)
 
-print(
-    "Saved: results/feature_anomalies.csv"
-)
-
-print("\nPROJECT EXECUTION COMPLETED SUCCESSFULLY.")
 # ============================================================
 # 18. FINAL ANOMALY VISUALIZATION
 # ============================================================
 
 plt.figure(figsize=(14, 6))
 
-# Plot CPU utilization
 plt.plot(
     df_features["timestamp"],
     df_features["value"],
     label="CPU Utilization",
-    linewidth=1
+    linewidth=1,
 )
 
-# Select detected anomalies
-anomalies = df_features[
-    df_features["feature_anomaly"]
-]
+anomalies = df_features[df_features["feature_anomaly"]]
 
-# Highlight anomalies
 plt.scatter(
     anomalies["timestamp"],
     anomalies["value"],
     label="Detected Anomalies",
-    s=35
+    s=35,
 )
 
-plt.title(
-    "IT Operations - CPU Utilization and Detected Anomalies"
-)
-
+plt.title("IT Operations - CPU Utilization and Detected Anomalies")
 plt.xlabel("Timestamp")
 plt.ylabel("CPU Utilization")
-
 plt.legend()
-
 plt.grid(True)
-
 plt.tight_layout()
 
-plt.savefig(
-    "results/anomaly_detection_plot.png",
-    dpi=300
-)
-
+plt.savefig("results/anomaly_detection_plot.png", dpi=300)
 plt.show()
+
+print("\nPROJECT EXECUTION COMPLETED SUCCESSFULLY.")
